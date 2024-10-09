@@ -1,0 +1,32 @@
+version: "3"
+
+services:
+  web:
+    build: rag_agent
+    ports:
+      - 8000:8000
+    volumes:
+      - ./rag_agent:/rag_agent
+    networks:
+      - rag-net
+  
+  ollama:
+    build: ollama
+    ports: 
+      - 11434:11434
+    volumes:
+      - tutorial-vol:/ollama
+    networks:
+      - rag-net
+    entrypoint: ["usr/bin/bash", "/pull-ollama.sh"]
+    
+
+networks:
+  rag-net:
+    driver: bridge
+
+volumes:
+  tutorial-vol:
+    driver: local
+  
+  
