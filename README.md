@@ -7,6 +7,7 @@
 - Conditional API Implementation between Online and Offline 
 
 #### 2. Folder Structure
+```
 ollama/
 ├─ Dockerfile
 ├─ pull-ollama.sh
@@ -21,5 +22,6 @@ rag_agent/
 ├─ Dockerfile
 ├─ main.py
 compose.yml
+```
 
 
