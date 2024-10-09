@@ -2,9 +2,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_ollama.chat_models import ChatOllama
 from langchain_groq import ChatGroq
-from dotenv import load_dotenv
-from utils import chatbot_with_tools, MyRag
 
+from utils import chatbot_with_tools, MyRag, save_sample_db, db_read_test, sql_agent
+
+from dotenv import load_dotenv
 load_dotenv()
 
 from functools import partial
@@ -46,3 +47,19 @@ def online_agent_chatbot(question:str):
 def open_chat(question:str, template:str=template, llm_name:str="llama3.2"):
     try: return online_agent_chatbot(question=question)
     except:return offline_openchat(template=template, question=question, llm_name=llm_name)
+
+
+if __name__ == "__main__":
+
+    # save_sample_db()
+
+    # db_read_test()
+
+    result = sql_agent("2009년에 가장 많이 팔린 장르는 무엇이며, 해당 장르의 총 매출액은 얼마인가요?")
+    print(f"응답개수: {len(result)}")
+    print(result)
+    print("-"*70)
+    print(result[-1])
+
+
+    pass

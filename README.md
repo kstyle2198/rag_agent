@@ -3,25 +3,35 @@
 
 #### 1. Main Features
 - Dockerized Ollama and LLM App
-- Open Chat and Rag with VectorStore
+- Open Chat, Agentic Rag, Sql Agent
 - Conditional API Implementation between Online and Offline 
 
 #### 2. Folder Structure
 ```
 ollama/
-├─ Dockerfile
 ├─ pull-ollama.sh
+├─ Dockerfile
 rag_agent/
 ├─ db/
-│  ├─ chroma_index
+│  ├─ chroma_index/
+│  ├─ Chinook.db
 ├─ utils/
+│  ├─ __init__.py
 │  ├─ agent_openchat.py
 │  ├─ rag.py
-│  ├─ __init__.py
+│  ├─ agent_rag.py
+│  ├─ sql_agent.py
+├─ main.py
 ├─ app.py
 ├─ Dockerfile
-├─ main.py
 compose.yml
+
+```
+
+#### 3. Command
+
+```python
+docker compose up --build
 ```
 
 
