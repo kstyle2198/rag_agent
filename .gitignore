@@ -1,3 +1,6 @@
 .venv
 poetry.lock
 pyproject.toml
+.env
+db
+__pycache__/
