@@ -19,7 +19,7 @@ from pprint import pprint
 
 
 class MyRag:
-    def rag_chat(query:str, json_style:bool=True, offline_mode:bool=False):
+    def rag_chat(query:str, json_style:bool=True):
 
         embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
         vectorstore = Chroma(persist_directory="./db/chroma_index", embedding_function=embed_model)
@@ -58,23 +58,17 @@ class MyRag:
                 ("human", "{input}"),
                 ]
             )
-        if offline_mode:
+
+        try:
+            model = ChatGroq(temperature=0, model_name= "llama-3.2-90b-text-preview")
+            question_answer_chain = create_stuff_documents_chain(model, prompt)
+            rag_chain = create_retrieval_chain(retriever, question_answer_chain)
+            response = rag_chain.invoke({"input": f"{query}"})
+            return response["context"], response["answer"]
+        except:
             model = ChatOllama(temperature=0, base_url="http://ollama:11434", model= "llama3.2:latest")
             question_answer_chain = create_stuff_documents_chain(model, prompt)
             rag_chain = create_retrieval_chain(retriever, question_answer_chain)
             response = rag_chain.invoke({"input": f"{query}"})
             return response["context"], response["answer"]
-        else:
-            try:
-                model = ChatGroq(temperature=0, model_name= "llama-3.2-90b-text-preview")
-                question_answer_chain = create_stuff_documents_chain(model, prompt)
-                rag_chain = create_retrieval_chain(retriever, question_answer_chain)
-                response = rag_chain.invoke({"input": f"{query}"})
-                return response["context"], response["answer"]
-            except:
-                model = ChatOllama(temperature=0, base_url="http://ollama:11434", model= "llama3.2:latest")
-                question_answer_chain = create_stuff_documents_chain(model, prompt)
-                rag_chain = create_retrieval_chain(retriever, question_answer_chain)
-                response = rag_chain.invoke({"input": f"{query}"})
-                return response["context"], response["answer"]
  

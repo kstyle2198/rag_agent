@@ -14,7 +14,7 @@ def ask(prompt:str):
 	return res
 
 @app.get("/basic_rag")
-def basic_rag(prompt:str, json_style:bool=True, offline_mode:bool=False):
+def basic_rag(prompt:str, json_style:bool=True):
 	res = MyRag.rag_chat(query=prompt, json_style=json_style)
 	return res
 
