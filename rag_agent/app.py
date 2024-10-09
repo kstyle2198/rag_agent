@@ -1,8 +1,10 @@
 import uvicorn
 from fastapi import FastAPI
+from dotenv import load_dotenv
+load_dotenv()
 
 from main import open_chat
-from utils import MyRag
+from utils import MyRag, agentic_rag
 
 app = FastAPI(title="AI CAPTAIN", version="0.1.0")
 
@@ -11,9 +13,14 @@ def ask(prompt:str):
 	res = open_chat(question=prompt)
 	return res
 
-@app.get("/rag")
-def rag(prompt:str, json_style:bool=True, offline_mode:bool=False):
+@app.get("/basic_rag")
+def basic_rag(prompt:str, json_style:bool=True, offline_mode:bool=False):
 	res = MyRag.rag_chat(query=prompt, json_style=json_style)
+	return res
+
+@app.get("/agent_rag")
+def agent_rag(prompt:str):
+	res = agentic_rag(user_input=prompt)
 	return res
 
 if __name__ == "__main__":

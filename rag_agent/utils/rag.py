@@ -5,6 +5,18 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain, RetrievalQA
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import OllamaEmbeddings
+from pydantic import BaseModel, Field
+import json
+from typing import Literal, List
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.output_parsers import StrOutputParser
+from typing_extensions import TypedDict
+from langchain import hub
+from langchain.schema import Document
+from langchain_community.tools.tavily_search import TavilySearchResults
+from pprint import pprint
+
+
 
 class MyRag:
     def rag_chat(query:str, json_style:bool=True, offline_mode:bool=False):
@@ -65,4 +77,4 @@ class MyRag:
                 rag_chain = create_retrieval_chain(retriever, question_answer_chain)
                 response = rag_chain.invoke({"input": f"{query}"})
                 return response["context"], response["answer"]
-
+ 
