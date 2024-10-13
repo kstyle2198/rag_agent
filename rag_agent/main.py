@@ -3,7 +3,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_ollama.chat_models import ChatOllama
 from langchain_groq import ChatGroq
 
-from utils import chatbot_with_tools, MyRag, save_sample_db, db_read_test, sql_agent
+from utils import chatbot_with_tools, adv_agentic_rag #MyRag, save_sample_db, db_read_test, sql_agent, 
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -55,11 +55,16 @@ if __name__ == "__main__":
 
     # db_read_test()
 
-    result = sql_agent("2009년에 가장 많이 팔린 장르는 무엇이며, 해당 장르의 총 매출액은 얼마인가요?")
-    print(f"응답개수: {len(result)}")
-    print(result)
-    print("-"*70)
-    print(result[-1])
+    # result = sql_agent("2009년에 가장 많이 팔린 장르는 무엇이며, 해당 장르의 총 매출액은 얼마인가요?")
+    # print(f"응답개수: {len(result)}")
+    # print(result)
+    # print("-"*70)
+    # print(result[-1])
+
+
+    res = adv_agentic_rag(user_input="what is the noon report in iss system?")
+    print(res)
+
 
 
     pass

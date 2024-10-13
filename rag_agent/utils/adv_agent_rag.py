@@ -1,52 +1,86 @@
+from typing import Literal
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
-from langchain_community.chat_models import ChatOllama
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains import create_retrieval_chain, RetrievalQA
-from langchain_chroma import Chroma
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama.chat_models import ChatOllama
 from pydantic import BaseModel, Field
-import json
-from typing import Literal, List
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_chroma import Chroma
 from langchain_core.output_parsers import StrOutputParser
-from typing_extensions import TypedDict
-from langchain import hub
-from langchain.schema import Document
-from langchain_community.tools.tavily_search import TavilySearchResults
-from pprint import pprint
+from langchain_ollama import OllamaEmbeddings
+import pandas as pd
+import chromadb
 
 from dotenv import load_dotenv
 load_dotenv()
 
 
-# Data model
+### Online - Offline model selection ###############
+# try: 
+    # llm = ChatGroq(temperature=0, model_name= "llama-3.2-90b-text-preview")
+    # embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
+    # db_path = "./db/chroma_langchain_db"
+    # vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=OllamaEmbeddings(model="bge-m3:latest"))
+    # retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 1, "fetch_k":5})
+
+# except:
+llm = ChatOllama(base_url="http://ollama:11434", model="llama3.2:latest", temperature=0)
+embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
+db_path = "./db/chroma_langchain_db"
+vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=OllamaEmbeddings(model="bge-m3:latest"))
+retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 1, "fetch_k":5})
+
+### Get document titles from vectordb ################
+def read_vectordb_as_df(db_path:str):
+    client = chromadb.PersistentClient(path=db_path)
+    for collection in client.list_collections():
+        data = collection.get(include=['embeddings', 'documents', 'metadatas'])
+        df = pd.DataFrame({"ids":data["ids"], 
+                        #    "embeddings":data["embeddings"], 
+                            "metadatas":data["metadatas"], 
+                            "documents":data["documents"]})
+        df["first_div"] = df["metadatas"].apply(lambda x: x["First Division"])
+        df["second_div"] = df["metadatas"].apply(lambda x: x["Second Division"])
+        df["filename"] = df["metadatas"].apply(lambda x: x["File Name"])
+        df = df[["ids", "first_div", "second_div","filename","documents", "metadatas"]]
+    return df
+
+def get_filenames(db_path:str):
+    df = read_vectordb_as_df(db_path=db_path)
+    docs_list = df["filename"].unique().tolist()
+    docs_list.sort()
+    return docs_list
+
+docs_list = get_filenames(db_path=db_path)
+
+### Router #############################
 class RouteQuery(BaseModel):
     """Route a user query to the most relevant datasource."""
 
-    datasource: Literal["vectorstore", "web_search"] = Field(
+    datasource: Literal["vectorstore", "web_search", "database"] = Field(
         ...,
         description="Given a user question choose to route it to web search or a vectorstore.",
     )
 
-llm = ChatGroq(temperature=0, model_name= "llama-3.2-90b-text-preview")
-pprint(f"----{llm}----")
+docs = ", ".join(docs_list)
 
-### Router
-structured_llm_router = llm.with_structured_output(RouteQuery)
-system = """You are an expert at routing a user question to a vectorstore or web search.
-The vectorstore contains documents related to unit cooler, fw generator, ISS.
-Use the vectorstore for questions on these topics. Otherwise, use web-search."""
+# Prompt
+system = f"""You are an expert at routing a user question to a vectorstore or web search or database.
+The vectorstore contains documents related to {docs}.
+Use the vectorstore for questions on these topics. 
+The vectorstore contains documents related to database.
+Use the database for questions on these topics. 
+Otherwise, use web-search."""
 route_prompt = ChatPromptTemplate.from_messages(
     [
         ("system", system),
         ("human", "{question}"),
     ]
 )
+
+structured_llm_router = llm.with_structured_output(RouteQuery)
 question_router = route_prompt | structured_llm_router
+question_router
 
-
-### Retrieval Grader
+### Retrieval Grader ################################
 # Data model
 class GradeDocuments(BaseModel):
     """Binary score for relevance check on retrieved documents."""
@@ -55,9 +89,7 @@ class GradeDocuments(BaseModel):
         description="Documents are relevant to the question, 'yes' or 'no'"
     )
 
-
-# LLM with function call
-structured_llm_grader = llm.with_structured_output(GradeDocuments)
+# Prompt
 system = """You are a grader assessing relevance of a retrieved document to a user question. \n 
     If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. \n
     It does not need to be a stringent test. The goal is to filter out erroneous retrievals. \n
@@ -68,10 +100,13 @@ grade_prompt = ChatPromptTemplate.from_messages(
         ("human", "Retrieved document: \n\n {document} \n\n User question: {question}"),
     ]
 )
+
+structured_llm_grader = llm.with_structured_output(GradeDocuments)
 retrieval_grader = grade_prompt | structured_llm_grader
 
 
-### Generate
+
+### Generate ####################################
 prompt = ChatPromptTemplate.from_messages([
     ("human", 
     """You are a knowledgable shipbuilding engineer for technical question-answering tasks. 
@@ -82,23 +117,15 @@ prompt = ChatPromptTemplate.from_messages([
     Context: {context} 
     Answer:"""),
     ])
-
-# Post-processing
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
-
 rag_chain = prompt | llm | StrOutputParser()
 
-
-### Hallucination Grader
+### Hallucination Grader ##################################
 class GradeHallucinations(BaseModel):
     """Binary score for hallucination present in generation answer."""
-
     binary_score: str = Field(
         description="Answer is grounded in the facts, 'yes' or 'no'"
     )
 
-structured_llm_grader = llm.with_structured_output(GradeHallucinations)
 system = """You are a grader assessing whether an LLM generation is grounded in / supported by a set of retrieved facts. \n 
      Give a binary score 'yes' or 'no'. 'Yes' means that the answer is grounded in / supported by the set of facts."""
 hallucination_prompt = ChatPromptTemplate.from_messages(
@@ -107,21 +134,17 @@ hallucination_prompt = ChatPromptTemplate.from_messages(
         ("human", "Set of facts: \n\n {documents} \n\n LLM generation: {generation}"),
     ]
 )
+structured_llm_grader = llm.with_structured_output(GradeHallucinations)
 hallucination_grader = hallucination_prompt | structured_llm_grader
 
 
-### Answer Grader
+### Answer Grader #######################################
 class GradeAnswer(BaseModel):
     """Binary score to assess answer addresses question."""
     binary_score: str = Field(
         description="Answer addresses the question, 'yes' or 'no'"
     )
 
-
-# LLM with function call
-structured_llm_grader = llm.with_structured_output(GradeAnswer)
-
-# Prompt
 system = """You are a grader assessing whether an answer addresses / resolves a question \n 
      Give a binary score 'yes' or 'no'. Yes' means that the answer resolves the question."""
 answer_prompt = ChatPromptTemplate.from_messages(
@@ -130,9 +153,10 @@ answer_prompt = ChatPromptTemplate.from_messages(
         ("human", "User question: \n\n {question} \n\n LLM generation: {generation}"),
     ]
 )
+structured_llm_grader = llm.with_structured_output(GradeAnswer)
 answer_grader = answer_prompt | structured_llm_grader
 
-### Question Re-writer
+### Question Re-Writer ###################################################
 system = """You a question re-writer that converts an input question to a better version that is optimized \n 
      for vectorstore retrieval. Look at the input and try to reason about the underlying semantic intent / meaning."""
 re_write_prompt = ChatPromptTemplate.from_messages(
@@ -146,9 +170,13 @@ re_write_prompt = ChatPromptTemplate.from_messages(
 )
 question_rewriter = re_write_prompt | llm | StrOutputParser()
 
-### Web Search Tool
-web_search_tool = TavilySearchResults(max_results=2)
+### Web Search Tool ###########################################################
+from langchain_community.tools.tavily_search import TavilySearchResults
+web_search_tool = TavilySearchResults(k=3)
 
+### Construct Graph #############################################################
+from typing import List
+from typing_extensions import TypedDict
 class GraphState(TypedDict):
     """
     Represents the state of our graph.
@@ -158,16 +186,12 @@ class GraphState(TypedDict):
         generation: LLM generation
         documents: list of documents
     """
-
     question: str
     generation: str
     documents: List[str]
 
 from langchain.schema import Document
-embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
-db_path = "./db/chroma_langchain_db"
-vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=embed_model)
-retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 1})
+# Nodes
 
 def retrieve(state):
     """
@@ -365,11 +389,11 @@ def grade_generation_v_documents_and_question(state):
             print("---DECISION: GENERATION DOES NOT ADDRESS QUESTION---")
             return "not useful"
     else:
-        pprint("---DECISION: GENERATION IS NOT GROUNDED IN DOCUMENTS, RE-TRY---")
+        print("---DECISION: GENERATION IS NOT GROUNDED IN DOCUMENTS, RE-TRY---")
         return "not supported"
     
-
-from langgraph.graph import END, StateGraph, START
+### Compile Graph ############################################3
+from langgraph.graph import StateGraph, START, END
 
 workflow = StateGraph(GraphState)
 
@@ -410,14 +434,33 @@ workflow.add_conditional_edges(
     },
 )
 
+
+from langgraph.checkpoint.memory import MemorySaver
+### Adding Memory
+# memory = MemorySaver()
+# memory
+
 # Compile
 app = workflow.compile()
+app
+
+from langchain_core.runnables.config import RunnableConfig
+config = RunnableConfig(recursion_limit=10)
 
 # Run
-def agentic_rag(user_input: str):
+def adv_agentic_rag(user_input: str):
     all_result = []
     inputs = {"question": user_input}
-    for event in app.stream(input=inputs, debug=True):
+    # config = RunnableConfig(recursion_limit=100)
+
+    for event in app.stream(input=inputs, 
+                            # config=config, 
+                            stream_mode="debug"):
         for key, value in event.items():
             all_result.append((key, value))
     return all_result
+    
+
+# if __name__ == "__main__":
+#     res = adv_agentic_rag(user_input="what is the noon report in iss system?")
+#     pass

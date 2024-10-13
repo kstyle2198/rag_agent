@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from main import open_chat
-from utils import MyRag, agentic_rag, sql_agent
+from utils import MyRag, agentic_rag, sql_agent, adv_agentic_rag
 
 app = FastAPI(title="AI CAPTAIN", version="0.1.0")
 
@@ -21,6 +21,11 @@ def basic_rag(prompt:str, json_style:bool=True):
 @app.get("/agent_rag")
 def agent_rag(prompt:str):
 	res = agentic_rag(user_input=prompt)
+	return res
+
+@app.get("/adv_agent")
+def adv_agent(prompt:str):
+	res = adv_agentic_rag(user_input=prompt)
 	return res
 
 @app.get("/data_rag")

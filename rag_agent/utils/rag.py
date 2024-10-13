@@ -3,8 +3,8 @@ from langchain_groq import ChatGroq
 from langchain_community.chat_models import ChatOllama
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain, RetrievalQA
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_chroma import Chroma
+from langchain_ollama import OllamaEmbeddings
 from pydantic import BaseModel, Field
 import json
 from typing import Literal, List
@@ -22,14 +22,16 @@ class MyRag:
     def rag_chat(query:str, json_style:bool=True):
 
         embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
-        vectorstore = Chroma(persist_directory="./db/chroma_index", embedding_function=embed_model)
-        retriever = vectorstore.as_retriever(search_kwargs={'k': 3})
+        db_path = "./db/chroma_langchain_db"
+        vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=embed_model)
+        retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 3})
 
         if json_style:
             system_prompt = ('''
-        You are an assistant for question-answering tasks. 
+        You are a knowledgable shipbuilding engineer for technical question-answering tasks. 
         Use the following pieces of retrieved context to answer the question. 
-        If you don't know the answer, say that you don't know. Use three sentences maximum and keep the answer concise.
+        Generate detailed answer including specified numbers, fomulas in the point of technical specifications. 
+        If you don't know the answer, just say that you don't know. 
 
         {context}
         Please provide your answer in the following JSON format: 
@@ -42,14 +44,14 @@ class MyRag:
                             ''')
         
         else: 
-            system_prompt = (
-                "You are an assistant for question-answering tasks. "
-                "Use the following pieces of retrieved context to answer "
-                "the question. If you don't know the answer, say that you "
-                "don't know. Use three sentences maximum and keep the "
-                "answer concise."
-                "\n\n"
-                "{context}"
+            system_prompt = ("""
+        You are a knowledgable shipbuilding engineer for technical question-answering tasks. 
+        Use the following pieces of retrieved context to answer the question. 
+        Generate detailed answer including specified numbers, fomulas in the point of technical specifications. 
+        If you don't know the answer, just say that you don't know. 
+
+        {context}
+        """
                 )
 
         prompt = ChatPromptTemplate.from_messages(
