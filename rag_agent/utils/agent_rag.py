@@ -57,7 +57,6 @@ class GradeDocuments(BaseModel):
 
 
 # LLM with function call
-structured_llm_grader = llm.with_structured_output(GradeDocuments)
 system = """You are a grader assessing relevance of a retrieved document to a user question. \n 
     If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. \n
     It does not need to be a stringent test. The goal is to filter out erroneous retrievals. \n
@@ -68,6 +67,7 @@ grade_prompt = ChatPromptTemplate.from_messages(
         ("human", "Retrieved document: \n\n {document} \n\n User question: {question}"),
     ]
 )
+structured_llm_grader = llm.with_structured_output(GradeDocuments)
 retrieval_grader = grade_prompt | structured_llm_grader
 
 
@@ -98,7 +98,6 @@ class GradeHallucinations(BaseModel):
         description="Answer is grounded in the facts, 'yes' or 'no'"
     )
 
-structured_llm_grader = llm.with_structured_output(GradeHallucinations)
 system = """You are a grader assessing whether an LLM generation is grounded in / supported by a set of retrieved facts. \n 
      Give a binary score 'yes' or 'no'. 'Yes' means that the answer is grounded in / supported by the set of facts."""
 hallucination_prompt = ChatPromptTemplate.from_messages(
@@ -107,6 +106,8 @@ hallucination_prompt = ChatPromptTemplate.from_messages(
         ("human", "Set of facts: \n\n {documents} \n\n LLM generation: {generation}"),
     ]
 )
+
+structured_llm_grader = llm.with_structured_output(GradeHallucinations)
 hallucination_grader = hallucination_prompt | structured_llm_grader
 
 

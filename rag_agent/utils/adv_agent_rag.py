@@ -14,19 +14,19 @@ load_dotenv()
 
 
 ### Online - Offline model selection ###############
-# try: 
-    # llm = ChatGroq(temperature=0, model_name= "llama-3.2-90b-text-preview")
-    # embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
-    # db_path = "./db/chroma_langchain_db"
-    # vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=OllamaEmbeddings(model="bge-m3:latest"))
-    # retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 1, "fetch_k":5})
+try: 
+    llm = ChatGroq(temperature=0, model_name= "llama-3.2-90b-text-preview")
+    embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
+    db_path = "./db/chroma_langchain_db"
+    vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=embed_model)
+    retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 1, "fetch_k":5})
 
-# except:
-llm = ChatOllama(base_url="http://ollama:11434", model="llama3.2:latest", temperature=0)
-embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
-db_path = "./db/chroma_langchain_db"
-vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=OllamaEmbeddings(model="bge-m3:latest"))
-retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 1, "fetch_k":5})
+except:
+    llm = ChatOllama(base_url="http://ollama:11434", model="llama3.2:latest", temperature=0)
+    embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
+    db_path = "./db/chroma_langchain_db"
+    vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=embed_model)
+    retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 1, "fetch_k":5})
 
 ### Get document titles from vectordb ################
 def read_vectordb_as_df(db_path:str):
@@ -50,6 +50,8 @@ def get_filenames(db_path:str):
     return docs_list
 
 docs_list = get_filenames(db_path=db_path)
+docs_list.insert(0, "vectorstore")
+docs_list.insert(0, "vectordb")
 
 ### Router #############################
 class RouteQuery(BaseModel):
@@ -78,7 +80,6 @@ route_prompt = ChatPromptTemplate.from_messages(
 
 structured_llm_router = llm.with_structured_output(RouteQuery)
 question_router = route_prompt | structured_llm_router
-question_router
 
 ### Retrieval Grader ################################
 # Data model
@@ -117,11 +118,17 @@ prompt = ChatPromptTemplate.from_messages([
     Context: {context} 
     Answer:"""),
     ])
+
+# Post-processing
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
 rag_chain = prompt | llm | StrOutputParser()
 
 ### Hallucination Grader ##################################
 class GradeHallucinations(BaseModel):
     """Binary score for hallucination present in generation answer."""
+
     binary_score: str = Field(
         description="Answer is grounded in the facts, 'yes' or 'no'"
     )
@@ -134,6 +141,7 @@ hallucination_prompt = ChatPromptTemplate.from_messages(
         ("human", "Set of facts: \n\n {documents} \n\n LLM generation: {generation}"),
     ]
 )
+
 structured_llm_grader = llm.with_structured_output(GradeHallucinations)
 hallucination_grader = hallucination_prompt | structured_llm_grader
 
