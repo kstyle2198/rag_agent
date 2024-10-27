@@ -19,7 +19,7 @@ def basic_chatbot():
     print(graph_builder)
     print("-"*70)
 
-    model = ChatGroq(temperature=0, model_name= "llama-3.2-90b-text-preview")
+    model = ChatGroq(temperature=0, model_name="llama-3.2-11b-text-preview")
 
     def chatbot(state: State):
         return {"messages": [model.invoke(state["messages"])]}

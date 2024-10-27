@@ -28,7 +28,7 @@ from langgraph.prebuilt import create_react_agent
 
 def sql_agent(user_input:str):
     db = SQLDatabase.from_uri("sqlite:///./db/Chinook.db")
-    llm = ChatGroq(temperature=0, model_name= "llama-3.2-90b-text-preview")
+    llm = ChatGroq(temperature=0, model_name= "llama-3.1-8b-instant",)
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     prompt_template = hub.pull("langchain-ai/sql-agent-system-prompt")
     system_message = prompt_template.format(dialect="SQLite", top_k=5)

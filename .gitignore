@@ -3,4 +3,7 @@ poetry.lock
 pyproject.toml
 .env
 db
+USER
 __pycache__/
+창고
+postgres-data

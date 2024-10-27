@@ -15,18 +15,16 @@ load_dotenv()
 
 ### Online - Offline model selection ###############
 try: 
-    llm = ChatGroq(temperature=0, model_name= "llama-3.2-90b-text-preview")
-    embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
-    db_path = "./db/chroma_langchain_db"
-    vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=embed_model)
-    retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 1, "fetch_k":5})
-
+    llm = ChatGroq(temperature=0, model_name= "llama-3.2-11b-text-preview")
 except:
     llm = ChatOllama(base_url="http://ollama:11434", model="llama3.2:latest", temperature=0)
-    embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
-    db_path = "./db/chroma_langchain_db"
-    vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=embed_model)
-    retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 1, "fetch_k":5})
+
+
+embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
+db_path = "./db/chroma_db_02"
+vectorstore = Chroma(collection_name="collection_01", persist_directory=db_path, embedding_function=embed_model)
+retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 3, "fetch_k":5})
+
 
 ### Get document titles from vectordb ################
 def read_vectordb_as_df(db_path:str):
@@ -43,33 +41,40 @@ def read_vectordb_as_df(db_path:str):
         df = df[["ids", "first_div", "second_div","filename","documents", "metadatas"]]
     return df
 
-def get_filenames(db_path:str):
+def get_first_div(db_path:str):
     df = read_vectordb_as_df(db_path=db_path)
-    docs_list = df["filename"].unique().tolist()
+    docs_list = df["first_div"].unique().tolist()
     docs_list.sort()
     return docs_list
 
-docs_list = get_filenames(db_path=db_path)
-docs_list.insert(0, "vectorstore")
-docs_list.insert(0, "vectordb")
+def get_second_div(db_path:str):
+    df = read_vectordb_as_df(db_path=db_path)
+    docs_list = df["second_div"].unique().tolist()
+    docs_list.sort()
+    return docs_list
+
+rag_target1 = get_first_div(db_path=db_path)
+rag_target2 = get_second_div(db_path=db_path)
+rag_target = rag_target1 + rag_target2
+rag_target.insert(0, "vectorstore")
+rag_target.insert(0, "vectordb")
 
 ### Router #############################
 class RouteQuery(BaseModel):
     """Route a user query to the most relevant datasource."""
 
-    datasource: Literal["vectorstore", "web_search", "database"] = Field(
+    datasource: Literal["vectorstore", "web_search"] = Field(
         ...,
         description="Given a user question choose to route it to web search or a vectorstore.",
     )
 
-docs = ", ".join(docs_list)
+docs = ", ".join(rag_target)
 
 # Prompt
-system = f"""You are an expert at routing a user question to a vectorstore or web search or database.
+system = f"""You are an expert at routing a user question to a vectorstore or web search.
 The vectorstore contains documents related to {docs}.
 Use the vectorstore for questions on these topics. 
 The vectorstore contains documents related to database.
-Use the database for questions on these topics. 
 Otherwise, use web-search."""
 route_prompt = ChatPromptTemplate.from_messages(
     [
@@ -104,7 +109,6 @@ grade_prompt = ChatPromptTemplate.from_messages(
 
 structured_llm_grader = llm.with_structured_output(GradeDocuments)
 retrieval_grader = grade_prompt | structured_llm_grader
-
 
 
 ### Generate ####################################
@@ -452,21 +456,23 @@ from langgraph.checkpoint.memory import MemorySaver
 app = workflow.compile()
 app
 
-from langchain_core.runnables.config import RunnableConfig
-config = RunnableConfig(recursion_limit=10)
 
 # Run
+from langgraph.errors import GraphRecursionError
 def adv_agentic_rag(user_input: str):
     all_result = []
     inputs = {"question": user_input}
-    # config = RunnableConfig(recursion_limit=100)
+    config = {"recursion_limit": 10}
 
-    for event in app.stream(input=inputs, 
-                            # config=config, 
-                            stream_mode="debug"):
-        for key, value in event.items():
-            all_result.append((key, value))
-    return all_result
+    try:
+        for event in app.stream(input=inputs, 
+                                config=config, 
+                                stream_mode="debug"):
+            for key, value in event.items():
+                all_result.append((key, value))
+        return all_result
+    except GraphRecursionError:
+        print("Recursion Error")
     
 
 # if __name__ == "__main__":

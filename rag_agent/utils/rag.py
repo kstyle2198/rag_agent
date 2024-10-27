@@ -20,10 +20,9 @@ from pprint import pprint
 
 class MyRag:
     def rag_chat(query:str, json_style:bool=True):
-
         embed_model = OllamaEmbeddings(base_url="http://ollama:11434", model="bge-m3:latest")
-        db_path = "./db/chroma_langchain_db"
-        vectorstore = Chroma(collection_name="my_collection", persist_directory=db_path, embedding_function=embed_model)
+        db_path = "./db/chroma_db_02"
+        vectorstore = Chroma(collection_name="collection_01", persist_directory=db_path, embedding_function=embed_model)
         retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={'k': 3})
 
         if json_style:
@@ -62,7 +61,7 @@ class MyRag:
             )
 
         try:
-            model = ChatGroq(temperature=0, model_name= "llama-3.2-90b-text-preview")
+            model = ChatGroq(temperature=0, model_name= "llama-3.2-11b-text-preview")
             question_answer_chain = create_stuff_documents_chain(model, prompt)
             rag_chain = create_retrieval_chain(retriever, question_answer_chain)
             response = rag_chain.invoke({"input": f"{query}"})

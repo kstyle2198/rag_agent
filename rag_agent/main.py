@@ -3,8 +3,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_ollama.chat_models import ChatOllama
 from langchain_groq import ChatGroq
 
-from utils import chatbot_with_tools, adv_agentic_rag #MyRag, save_sample_db, db_read_test, sql_agent, 
-
+from utils import chatbot_with_tools, VectordbManager
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -62,8 +61,11 @@ if __name__ == "__main__":
     # print(result[-1])
 
 
-    res = adv_agentic_rag(user_input="what is the noon report in iss system?")
-    print(res)
+    # res = adv_agentic_rag(user_input="what is the noon report in iss system?")
+    # print(res)
+
+    result = VectordbManager.get_filename("./db/chroma_db_02")
+    print(result)
 
 
 
