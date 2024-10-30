@@ -4,7 +4,7 @@ WORKDIR rag_agent
 
 COPY requirements.txt .
 
-COPY . ./rag_agent
+COPY . ./
 
 RUN pip install --no-cache-dir -r requirements.txt
 

@@ -470,7 +470,7 @@ def adv_agentic_rag(user_input: str):
                                 stream_mode="debug"):
             for key, value in event.items():
                 all_result.append((key, value))
-        return all_result
+        return all_result[-1]
     except GraphRecursionError:
         print("Recursion Error")
     

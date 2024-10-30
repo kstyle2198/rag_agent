@@ -97,8 +97,12 @@ if __name__ == "__main__":
             elif text_input and st.session_state.service == "Agentic Rag":
                 start_time = datetime.now()
                 st.session_state.messages.append({"role": "user", "content": text_input})
-                result = agentic_rag(query = text_input)
-                st.session_state.messages.append({"role": "assistant", "content": result})
+                try: 
+                    result = agentic_rag(query = text_input)
+                    st.session_state.messages.append({"role": "assistant", "content": result})
+                except Exception as e:
+                    st.warning(f"Time Limit exceeds - {e}")
+                
                 end_time = datetime.now()
                 st.session_state.time_delta = calculate_time_delta(start_time, end_time)
             else: pass
