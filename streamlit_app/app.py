@@ -2,7 +2,10 @@ import streamlit as st
 import requests
 import pickle
 import random
+import asyncio
 from datetime import datetime
+import websockets
+from websockets.exceptions import ConnectionClosedError
 
 st.set_page_config(page_title="AI Captain", layout="wide")
 st.markdown(
@@ -35,15 +38,36 @@ def filenames(db_path:str="./db/chroma_db_02"):
     res = response.json()
     return res
 
+async def ws_check_random_number():
+    uri2 = "ws://rag_agent:8000/ws/random-number"
+    async with websockets.connect(uri2) as ws:
+        placeholder = st.empty()
+        while True:
+            try:
+                # Receive message from the WebSocket
+                message = await ws.recv()
+                # Display the message in Streamlit
+                placeholder.markdown(f"### {message}")
+            except websockets.ConnectionClosed:
+                st.write("Connection closed.")
+                break
+
+
 
 if "messages" not in st.session_state:   st.session_state.messages = [{"role": "assistant", "content": "How can I help you?"}]
 if "time_delta" not in st.session_state:   st.session_state.time_delta = ""
 if "doc_list" not in st.session_state:   st.session_state.doc_list = ""  
+if "check_monitoring" not in st.session_state:   st.session_state.check_monitoring = False  
 
 
 if __name__ == "__main__":
     st.title("AI CAPTAIN")
+    st.session_state.multiple_ws = st.checkbox("Monitoring Random Number")
+    if st.session_state.multiple_ws:
+        asyncio.run(ws_check_random_number())
+
     st.markdown("---")
+
 
     text_input = st.chat_input("Say something")
     tab1, tab2, tab3 = st.tabs(["MAIN", "Documents", "Admin"])

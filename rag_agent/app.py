@@ -1,15 +1,15 @@
 import os
 import json
-import shutil
+import random
 import uvicorn
+import asyncio
 from pydantic import BaseModel
 from typing import Optional
-from fastapi import FastAPI, File, UploadFile, Response
+from fastapi import FastAPI, File, UploadFile, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
-from main import open_chat
-from utils import MyRag, app_stream, sql_agent, adv_agentic_rag, VectordbManager, AdvancedMiddleware, TimeoutMiddleware, LoggingMiddleware, CustomHeaderMiddleware, ErrorHandlingMiddleware
+from utils import app_stream, VectordbManager, AdvancedMiddleware, TimeoutMiddleware, LoggingMiddleware, CustomHeaderMiddleware, ErrorHandlingMiddleware
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -45,7 +45,7 @@ app.add_middleware(
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=origins)
 
-
+#### API ENDPOINT #####################################################
 @app.post("/agentic_rag")
 def agentic_rag(request: AskRequest):
 	res = app_stream(question=request.question, recursion_limit=request.recursion_limit)
@@ -57,6 +57,28 @@ def agentic_rag(request: AskRequest):
 def filenames(request: ReadVectorDB):
 	res = VectordbManager.get_filename(db_path=request.db_path)
 	return res
+
+@app.websocket("/ws/random-number")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            # Generate a random integer between 1 and 10
+            random_number = random.randint(1, 10)
+
+            # Send the random number to the client
+            await websocket.send_text(f"Check Random number: {random_number}")
+
+            # Check if the number is greater than 5
+            if random_number > 5:
+                # Send an alert message if the condition is met
+                await websocket.send_text(f"Alert: Check Random Number({random_number}) is greater than 5!")
+
+            # Wait for 5 seconds before sending the next number
+            await asyncio.sleep(5)
+
+    except WebSocketDisconnect:
+        print("Client disconnected")
 
 
 if __name__ == "__main__":
