@@ -14,10 +14,12 @@ from langchain_core.output_parsers import StrOutputParser
 
 
 try:
-    llm = ChatGroq(temperature=0, model_name= "llama-3.2-11b-text-preview")
+    llm = ChatGroq(temperature=0, model_name= "llama-3.1-70b-versatile")
+    sql_llm = ChatGroq(model_name= "llama-3.1-70b-versatile")  
     print(f">>> {llm}")
 except:
     llm = ChatOllama(base_url="http://ollama:11434", model="llama3.2:latest", temperature=0)
+    sql_llm = ChatOllama(base_url="http://ollama:11434", model="llama3.2:latest")
     print(f">>> {llm}")
 
 db_path = "./db/chroma_db_02"
@@ -200,8 +202,14 @@ class GraphState(TypedDict):
     """
     connection: bool = False
     question: str
-    generation: str
+    generation: str    #generation
     documents: List[str]
+
+    sql_query: str
+    query_rows: list
+    attempts: int
+    relevance: str
+    sql_error: bool
 
 from langchain.schema import Document
 
@@ -497,6 +505,304 @@ def grade_generation_v_documents_and_question(state):
         print("---DECISION(Not Supported): GENERATION IS NOT GROUNDED IN DOCUMENTS, RE-TRY---")
         return "not supported"
     
+### SQL Agent Codes #################################
+import os
+from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Float
+from sqlalchemy.orm import sessionmaker, relationship, declarative_base
+from langchain_core.runnables.config import RunnableConfig
+from sqlalchemy import text, inspect
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./db/example.db")
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# Definition of the Users table
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, index=True)
+    age = Column(Integer)
+    email = Column(String, unique=True, index=True)
+
+    orders = relationship("Order", back_populates="user")
+
+# Definition of the Food table
+class Food(Base):
+    __tablename__ = "food"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True)
+    price = Column(Float)
+
+    orders = relationship("Order", back_populates="food")
+
+# Definition of the Orders table
+class Order(Base):
+    __tablename__ = "orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    food_id = Column(Integer, ForeignKey("food.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+
+    user = relationship("User", back_populates="orders")
+    food = relationship("Food", back_populates="orders")
+
+# SQL Agent Helper Functions
+
+def get_database_schema(engine):
+    inspector = inspect(engine)
+    schema = ""
+    for table_name in inspector.get_table_names():
+        schema += f"Table: {table_name}\n"
+        for column in inspector.get_columns(table_name):
+            col_name = column["name"]
+            col_type = str(column["type"])
+            if column.get("primary_key"):
+                col_type += ", Primary Key"
+            if column.get("foreign_keys"):
+                fk = list(column["foreign_keys"])[0]
+                col_type += f", Foreign Key to {fk.column.table.name}.{fk.column.name}"
+            schema += f"- {col_name}: {col_type}\n"
+        schema += "\n"
+    print("Retrieved database schema.")
+    return schema
+
+class CheckRelevance(BaseModel):
+    relevance: str = Field(
+        description="Indicates whether the question is related to the database schema. 'relevant' or 'not_relevant'."
+    )
+
+def check_relevance(state: GraphState, config: RunnableConfig):
+    question = state["question"]
+    schema = get_database_schema(engine)
+    print(f"Checking relevance of the question: {question}")
+    system = """You are an assistant that determines whether a given question is related to the following database schema.
+
+Schema:
+{schema}
+
+Respond with only "relevant" or "not_relevant".
+""".format(schema=schema)
+    human = f"Question: {question}"
+    check_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system),
+            ("human", human),
+        ]
+    )
+    llm = sql_llm
+    structured_llm = llm.with_structured_output(CheckRelevance)
+    relevance_checker = check_prompt | structured_llm
+    relevance = relevance_checker.invoke({})
+    state["relevance"] = relevance.relevance
+    print(f"Relevance determined: {state['relevance']}")
+    return state
+
+class ConvertToSQL(BaseModel):
+    sql_query: str = Field(
+        description="The SQL query corresponding to the natural language question."
+    )
+
+def convert_nl_to_sql(state: GraphState, config: RunnableConfig):
+    question = state["question"]
+    schema = get_database_schema(engine)
+    print(f"Converting question to SQL : {question}")
+    system = f"""You are an assistant that converts natural language questions into SQL queries based on the following schema:
+
+{schema}
+
+Provide only the SQL query without any explanations. 
+Alias columns appropriately to match the expected keys in the result.
+
+For example, alias 'food.name' as 'food_name' and 'food.price' as 'price'.
+"""
+    convert_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system),
+            ("human", "Question: {question}"),
+        ]
+    )
+    llm = sql_llm
+    structured_llm = llm.with_structured_output(ConvertToSQL)
+    sql_generator = convert_prompt | structured_llm
+    result = sql_generator.invoke({"question": question})
+    state["sql_query"] = result.sql_query
+    print(f">>> Generated SQL query: {state['sql_query']}")
+    return state
+
+def execute_sql(state: GraphState):
+    sql_query = state["sql_query"].strip()
+    session = SessionLocal()
+    print(f"Executing SQL query: {sql_query}")
+    try:
+        result = session.execute(text(sql_query))
+        if sql_query.lower().startswith("select"):
+            rows = result.fetchall()
+            columns = result.keys()
+            if rows:
+                header = ", ".join(columns)
+                state["query_rows"] = [dict(zip(columns, row)) for row in rows]
+                print(f"Raw SQL Query Result: {state['query_rows']}")
+                # Format the result for readability
+                data = "; ".join([f"{row.get('food_name', row.get('name'))} for ${row.get('price', row.get('food_price'))}" for row in state["query_rows"]])
+                formatted_result = f"{header}\n{data}"
+            else:
+                state["query_rows"] = []
+                formatted_result = "No results found."
+            state["generation"] = formatted_result
+            state["sql_error"] = False
+            print("SQL SELECT query executed successfully.")
+        else:
+            session.commit()
+            state["generation"] = "The action has been successfully completed."
+            state["sql_error"] = False
+            print("SQL command executed successfully.")
+    except Exception as e:
+        state["generation"] = f"Error executing SQL query: {str(e)}"
+        state["sql_error"] = True
+        print(f"Error executing SQL query: {str(e)}")
+    finally:
+        session.close()
+    return state
+
+def generate_human_readable_answer(state: GraphState):
+    sql = state["sql_query"]
+    result = state["generation"]
+    query_rows = state.get("query_rows", [])
+    sql_error = state.get("sql_error", False)
+    print("Generating a human-readable answer.")
+    system = f"""You are an assistant that converts SQL query results into clear, natural language responses without including any identifiers like order IDs. 
+    """
+    if sql_error:
+        # Directly relay the error message
+        generate_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                (
+                    "human",
+                    f"""SQL Query:
+{sql}
+
+Result:
+{result}
+
+Formulate a clear and understandable error message in a single sentence, informing them about the issue."""
+                ),
+            ]
+        )
+    elif sql.lower().startswith("select"):
+        if not query_rows:
+            # Handle cases with no orders
+            generate_prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", system),
+                    (
+                        "human",
+                        f"""SQL Query:
+{sql}
+
+Result:
+{result}
+
+Formulate a clear and understandable answer to the original question in a single sentence, and mention that there are no orders found."""
+                    ),
+                ]
+            )
+        else:
+            # Handle displaying orders
+            generate_prompt = ChatPromptTemplate.from_messages(
+                [
+                    ("system", system),
+                    (
+                        "human",
+                        f"""SQL Query:
+{sql}
+
+Result:
+{result}
+
+Formulate a clear and understandable answer to the original question in a single sentence, and list each item ordered along with its price. 
+For example: 'you have ordered Lasagne for $14.0 and Spaghetti Carbonara for $15.0.'"""
+                    ),
+                ]
+            )
+    else:
+        # Handle non-select queries
+        generate_prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system),
+                (
+                    "human",
+                    f"""SQL Query:
+{sql}
+
+Result:
+{result}
+
+Formulate a clear and understandable confirmation message in a single sentence, confirming that your request has been successfully processed."""
+                ),
+            ]
+        )
+
+    llm = sql_llm
+    human_response = generate_prompt | llm | StrOutputParser()
+    answer = human_response.invoke({})
+    state["generation"] = answer
+    print("Generated human-readable answer.")
+    return state
+
+class RewrittenQuestion(BaseModel):
+    question: str = Field(description="The rewritten question.")
+
+def regenerate_query(state: GraphState):
+    question = state["question"]
+    print("Regenerating the SQL query by rewriting the question.")
+    system = """You are an assistant that reformulates an original question to enable more precise SQL queries. 
+    Ensure that all necessary details, such as table joins, are preserved to retrieve complete and accurate data.
+    """
+    rewrite_prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system),
+            (
+                "human",
+                f"Original Question: {question}\nReformulate the question to enable more precise SQL queries, ensuring all necessary details are preserved.",
+            ),
+        ]
+    )
+    llm = sql_llm
+    structured_llm = llm.with_structured_output(RewrittenQuestion)
+    rewriter = rewrite_prompt | structured_llm
+    rewritten = rewriter.invoke({})
+    state["question"] = rewritten.question
+    state["attempts"] += 1
+    print(f"Rewritten question: {state['question']}")
+    return state
+
+def relevance_router(state: GraphState):
+    if state["relevance"].lower() == "relevant":
+        return "convert_to_sql"
+    else:
+        return "no_relevance"
+
+def execute_sql_router(state: GraphState):
+    if not state.get("sql_error", False):
+        return "generate_human_readable_answer"
+    else:
+        return "regenerate_query"
+
+def check_attempts_router(state: GraphState):
+    if state["attempts"] < 3:
+        return "convert_to_sql"
+    else:
+        return "end_max_iterations"
+
+def end_max_iterations(state: GraphState):
+    state["generation"] = "Please try again."
+    print("Maximum attempts reached. Ending the workflow.")
+    return state
+
 ### Complile Graph #############################
 
 from langgraph.graph import StateGraph, START, END
@@ -508,10 +814,18 @@ workflow.add_node("web_connection", web_connection)  # check_internet
 workflow.add_node("similarity_search", similarity_search)  # similarity_search
 workflow.add_node("web_search", web_search)  # web search
 workflow.add_node("retrieve", retrieve)  # retrieve
-workflow.add_node("sql_search", sql_search)  # sql search
+# workflow.add_node("sql_search", sql_search)  # sql search
 workflow.add_node("grade_documents", grade_documents)  # grade documents
 workflow.add_node("generate", generate)  # generatae
 workflow.add_node("transform_query", transform_query)  # transform_query
+
+workflow.add_node("check_relevance", check_relevance)
+workflow.add_node("convert_to_sql", convert_nl_to_sql)
+workflow.add_node("execute_sql", execute_sql)
+workflow.add_node("generate_human_readable_answer", generate_human_readable_answer)
+workflow.add_node("regenerate_query", regenerate_query)
+workflow.add_node("end_max_iterations", end_max_iterations)
+
 
 # Build graph
 workflow.add_conditional_edges(
@@ -521,7 +835,7 @@ workflow.add_conditional_edges(
         "web_search": "web_connection",
         "vectorstore": "retrieve",
         "similarity_search": "similarity_search",
-        "database": "sql_search"
+        "database": "check_relevance"
     },
 )
 
@@ -536,7 +850,7 @@ workflow.add_conditional_edges(
 workflow.add_edge("web_search", "generate")
 workflow.add_edge("retrieve", "grade_documents")
 workflow.add_edge("similarity_search", END)
-workflow.add_edge("sql_search", END)
+# workflow.add_edge("sql_search", END)
 
 workflow.add_conditional_edges(
     "grade_documents",
@@ -557,10 +871,39 @@ workflow.add_conditional_edges(
     },
 )
 
+workflow.add_conditional_edges(
+    "check_relevance",
+    relevance_router,
+    {
+        "convert_to_sql": "convert_to_sql",
+        "no_relevance": END,
+    },
+)
+workflow.add_edge("convert_to_sql", "execute_sql")
+
+workflow.add_conditional_edges(
+    "execute_sql",
+    execute_sql_router,
+    {
+        "generate_human_readable_answer": "generate_human_readable_answer",
+        "regenerate_query": "regenerate_query",
+    },
+)
+
+workflow.add_conditional_edges(
+    "regenerate_query",
+    check_attempts_router,
+    {
+        "convert_to_sql": "convert_to_sql",
+        "max_iterations": "end_max_iterations",
+    },
+)
+
+workflow.add_edge("generate_human_readable_answer", END)
+workflow.add_edge("end_max_iterations", END)
 
 # Compile
 app = workflow.compile()
-
 
 ### APP STREAM ##########################
 from langgraph.errors import GraphRecursionError
