@@ -1,6 +1,15 @@
-# version: "3"
-
 services:
+
+  ollama:
+    build: ollama
+    ports: 
+      - 11434:11434
+    volumes:
+      - tutorial-vol:/ollama
+    networks:
+      - rag-net
+    entrypoint: ["usr/bin/bash", "/pull-ollama.sh"]
+
   rag_agent:
     build: rag_agent
     ports:
@@ -9,6 +18,8 @@ services:
       - ./rag_agent:/rag_agent
     networks:
       - rag-net
+    depends_on:
+      - ollama
   
   streamlit-app:
     build: streamlit_app
@@ -23,16 +34,8 @@ services:
       - ./streamlit_app:/streamlit_app
     networks:
       - rag-net
-
-  ollama:
-    build: ollama
-    ports: 
-      - 11434:11434
-    volumes:
-      - tutorial-vol:/ollama
-    networks:
-      - rag-net
-    entrypoint: ["usr/bin/bash", "/pull-ollama.sh"]
+    depends_on:
+      - rag_agent
 
 networks:
   rag-net:

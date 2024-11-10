@@ -1,17 +1,15 @@
-from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi import Request, Response
 import time
 import random
 import string
-from collections import defaultdict
-from typing import Dict
 import asyncio
 import logging
+from typing import Dict
+from collections import defaultdict
+from fastapi import Request, Response
 from fastapi.responses import PlainTextResponse
 from fastapi.responses import JSONResponse
-
-
-    
+from starlette.middleware.base import BaseHTTPMiddleware
+  
 class AdvancedMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
@@ -23,7 +21,7 @@ class AdvancedMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         client_ip = request.client.host
         current_time = time.time()
-        if current_time - self.rate_limit_records[client_ip] < 1:
+        if current_time - self.rate_limit_records[client_ip] < 0.1:
             return Response(content="Rate limit exceeded", status_code=429)
         
         self.rate_limit_records[client_ip] = current_time

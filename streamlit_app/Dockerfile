@@ -1,5 +1,5 @@
 # Use the official Python base image
-FROM python:3.12
+FROM python:3.12.7-slim
 
 # Set the working directory
 WORKDIR streamlit_app
