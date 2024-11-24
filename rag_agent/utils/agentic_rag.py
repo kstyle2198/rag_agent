@@ -807,138 +807,243 @@ def end_max_iterations(state: GraphState):
     return state
 
 ### Complile Graph #############################
-
 from langgraph.graph import StateGraph, START, END
-
-workflow = StateGraph(GraphState)
-
-# Define the nodes
-workflow.add_node("web_connection", web_connection)  # check_internet
-workflow.add_node("similarity_search", similarity_search)  # similarity_search
-workflow.add_node("web_search", web_search)  # web search
-workflow.add_node("retrieve", retrieve)  # retrieve
-# workflow.add_node("sql_search", sql_search)  # sql search
-workflow.add_node("grade_documents", grade_documents)  # grade documents
-workflow.add_node("generate", generate)  # generatae
-workflow.add_node("transform_query", transform_query)  # transform_query
-
-workflow.add_node("check_relevance", check_relevance)
-workflow.add_node("convert_to_sql", convert_nl_to_sql)
-workflow.add_node("execute_sql", execute_sql)
-workflow.add_node("generate_human_readable_answer", generate_human_readable_answer)
-workflow.add_node("regenerate_query", regenerate_query)
-workflow.add_node("end_max_iterations", end_max_iterations)
-
-
-# Build graph
-workflow.add_conditional_edges(
-    START,
-    route_question,
-    {
-        "web_search": "web_connection",
-        "vectorstore": "retrieve",
-        "similarity_search": "similarity_search",
-        "database": "check_relevance"
-    },
-)
-
-workflow.add_conditional_edges(
-    "web_connection",
-    check_internet,
-    {
-        "ON": "web_search",
-        "OFF": END,
-    },
-)
-workflow.add_edge("web_search", "generate")
-workflow.add_edge("retrieve", "grade_documents")
-workflow.add_edge("similarity_search", END)
-# workflow.add_edge("sql_search", END)
-
-workflow.add_conditional_edges(
-    "grade_documents",
-    decide_to_generate,
-    {
-        "transform_query": "transform_query",
-        "generate": "generate",
-    },
-)
-workflow.add_edge("transform_query", "retrieve")
-workflow.add_conditional_edges(
-    "generate",
-    grade_generation_v_documents_and_question,
-    {
-        "not supported": "generate",
-        "useful": END,
-        "not useful": "transform_query",
-    },
-)
-
-workflow.add_conditional_edges(
-    "check_relevance",
-    relevance_router,
-    {
-        "convert_to_sql": "convert_to_sql",
-        "no_relevance": END,
-    },
-)
-workflow.add_edge("convert_to_sql", "execute_sql")
-
-workflow.add_conditional_edges(
-    "execute_sql",
-    execute_sql_router,
-    {
-        "generate_human_readable_answer": "generate_human_readable_answer",
-        "regenerate_query": "regenerate_query",
-    },
-)
-
-workflow.add_conditional_edges(
-    "regenerate_query",
-    check_attempts_router,
-    {
-        "convert_to_sql": "convert_to_sql",
-        "max_iterations": "end_max_iterations",
-    },
-)
-
-workflow.add_edge("generate_human_readable_answer", END)
-workflow.add_edge("end_max_iterations", END)
-
-# Compile
-app = workflow.compile()
-
-### APP STREAM ##########################
 from langgraph.errors import GraphRecursionError
-# Run
-def app_stream(question:str, recursion_limit:int=5):
-    inputs = {
-        "question": question, 
-        }
-    config = {
-        "recursion_limit": recursion_limit, 
-        }
+
+def sql_builder(state):
+    sql_builder = StateGraph(state)
+    sql_builder.add_node("check_relevance", check_relevance)
+    sql_builder.add_node("convert_to_sql", convert_nl_to_sql)
+    sql_builder.add_node("execute_sql", execute_sql)
+    sql_builder.add_node("generate_human_readable_answer", generate_human_readable_answer)
+    sql_builder.add_node("regenerate_query", regenerate_query)
+    sql_builder.add_node("end_max_iterations", end_max_iterations)
+
+    sql_builder.add_edge(START, "check_relevance")
+    sql_builder.add_conditional_edges(
+        "check_relevance",
+        relevance_router,
+        {
+            "convert_to_sql": "convert_to_sql",
+            "no_relevance": END,
+        },
+    )
+    sql_builder.add_edge("convert_to_sql", "execute_sql")
+
+    sql_builder.add_conditional_edges(
+        "execute_sql",
+        execute_sql_router,
+        {
+            "generate_human_readable_answer": "generate_human_readable_answer",
+            "regenerate_query": "regenerate_query",
+        },
+    )
+
+    sql_builder.add_conditional_edges(
+        "regenerate_query",
+        check_attempts_router,
+        {
+            "convert_to_sql": "convert_to_sql",
+            "max_iterations": "end_max_iterations",
+        },
+    )
+
+    sql_builder.add_edge("generate_human_readable_answer", END)
+    sql_builder.add_edge("end_max_iterations", END)
+
+    return sql_builder.compile()
+
+def sim_builder(state):
+    sim_builder = StateGraph(state)
+    sim_builder.add_node("similarity_search", similarity_search)  # similarity_search
+    sim_builder.add_node("grade_documents", grade_documents)  # grade documents
+    sim_builder.add_node("transform_query", transform_query)  # transform_query
+
+    sim_builder.add_edge(START, "similarity_search")
+    sim_builder.add_edge("similarity_search", "grade_documents")
+    sim_builder.add_conditional_edges(
+        "grade_documents",
+        decide_to_generate,
+        {
+            "transform_query": "transform_query",
+            "generate": END,
+        },
+    )
+    sim_builder.add_edge("transform_query", "similarity_search")
+    return sim_builder.compile()
+
+
+def web_builder(state):
+    web_builder = StateGraph(state)
+    web_builder.add_node("web_connection", web_connection)
+    web_builder.add_node("web_search", web_search)
+    web_builder.add_node("generate", generate)
+    web_builder.add_node("transform_query", transform_query)
+
+    web_builder.add_edge(START, "web_connection")
+    web_builder.add_conditional_edges(
+        "web_connection",
+        check_internet,
+        {
+            "ON": "web_search",
+            "OFF": END,
+        },
+    )
+    web_builder.add_edge("web_search", "generate")
+    web_builder.add_conditional_edges(
+        "generate",
+        grade_generation_v_documents_and_question,
+        {
+            "not supported": "generate",
+            "useful": END,
+            "not useful": "transform_query",
+        },
+    )
+    web_builder.add_edge("transform_query", "web_search")
+    return web_builder.compile()
+
+
+def rag_builder(state):
+    rag_builder = StateGraph(state)
+    rag_builder.add_node("retrieve", retrieve)  # retrieve
+    rag_builder.add_node("grade_documents", grade_documents)  # grade documents
+    rag_builder.add_node("generate", generate)  # generatae
+    rag_builder.add_node("transform_query", transform_query)  # transform_query
+
+    rag_builder.add_edge(START, "retrieve")
+    rag_builder.add_edge("retrieve", "grade_documents")
+    rag_builder.add_conditional_edges(
+        "grade_documents",
+        decide_to_generate,
+        {
+            "transform_query": "transform_query",
+            "generate": "generate",
+        },
+    )
+    rag_builder.add_edge("transform_query", "retrieve")
+    rag_builder.add_conditional_edges(
+        "generate",
+        grade_generation_v_documents_and_question,
+        {
+            "not supported": "generate",
+            "useful": END,
+            "not useful": "transform_query",
+        },
+    )
+    return rag_builder.compile()
+
+def total_builder(state):
+    workflow = StateGraph(state)
+    workflow.add_node("retrieve", retrieve)  
+    workflow.add_node("check_relevance", check_relevance)
+    workflow.add_node("similarity_search", similarity_search)  
+    workflow.add_node("web_connection", web_connection)  
+
+    workflow.add_node("web_builder", web_builder(state=state))
+    workflow.add_node("sql_builder", sql_builder(state=state))
+    workflow.add_node("sim_builder", sim_builder(state=state))
+    workflow.add_node("rag_builder", rag_builder(state=state))
+
+    # Build graph
+    workflow.add_conditional_edges(
+        START,
+        route_question,
+        {
+            "web_search": "web_connection",
+            "vectorstore": "retrieve",
+            "similarity_search": "similarity_search",
+            "database": "check_relevance"
+        },
+    )
+    workflow.add_edge("web_connection", "web_builder")
+    workflow.add_edge("retrieve", "rag_builder")
+    workflow.add_edge("similarity_search", "sim_builder")
+    workflow.add_edge("check_relevance", "sql_builder")
+
+    return workflow.compile()
+
+from langgraph.errors import GraphRecursionError
+def total_stream(question:str, recursion_limit:int=10):
+    app = total_builder(state=GraphState)
+    inputs = {"question": question}
+    config = {"recursion_limit": recursion_limit}
     try:
-        for output in app.stream(inputs, 
-                                config, 
-                                # stream_mode="debug"
-                                ):
+        for output in app.stream(inputs, config):
             for key, value in output.items():
-                # Node
                 print(f">>> Node : {key}")
             print("="*70)
-
         # Final generation
         print("")
+        print(value)
     except GraphRecursionError:
-        print(f"=== Maximum Recursion Error : {recursion_limit} ===")
-        value = f"=== Maximum Recursion Error : {recursion_limit} ==="
-    
+        print(f"=== Recursion Error - {recursion_limit} ===")
+        value = f"=== Recursion Error - {recursion_limit} ==="
     return value
 
+def web_search_stream(question:str, recursion_limit:int=3):
+    app = web_builder(state=GraphState)
+    inputs = {"question": question}
+    config = {"recursion_limit": recursion_limit}
+    try:
+        for output in app.stream(inputs, config):
+            for key, value in output.items():
+                print(f">>> Node : {key}")
+            print("="*70)
+        # Final generation
+        print("")
+        print(value)
+    except GraphRecursionError:
+        print(f"=== Recursion Error - {recursion_limit} ===")
+        value = f"=== Recursion Error - {recursion_limit} ==="
+    return value
 
+def sim_search_stream(question:str, recursion_limit:int=3):
+    app = sim_builder(state=GraphState)
+    inputs = {"question": question}
+    config = {"recursion_limit": recursion_limit}
+    try:
+        for output in app.stream(inputs, config):
+            for key, value in output.items():
+                print(f">>> Node : {key}")
+            print("="*70)
+        # Final generation
+        print("")
+        print(value)
+    except GraphRecursionError:
+        print(f"=== Recursion Error - {recursion_limit} ===")
+        value = f"=== Recursion Error - {recursion_limit} ==="
+    return value
 
+def rag_stream(question:str, recursion_limit:int=3):
+    app = rag_builder(state=GraphState)
+    inputs = {"question": question}
+    config = {"recursion_limit": recursion_limit}
+    try:
+        for output in app.stream(inputs, config):
+            for key, value in output.items():
+                print(f">>> Node : {key}")
+            print("="*70)
+        # Final generation
+        print("")
+        print(value)
+    except GraphRecursionError:
+        print(f"=== Recursion Error - {recursion_limit} ===")
+        value = f"=== Recursion Error - {recursion_limit} ==="
+    return value
 
-
-
-
+def sql_stream(question:str, recursion_limit:int=3):
+    app = sql_builder(state=GraphState)
+    inputs = {"question": question}
+    config = {"recursion_limit": recursion_limit}
+    try:
+        for output in app.stream(inputs, config):
+            for key, value in output.items():
+                print(f">>> Node : {key}")
+            print("="*70)
+        # Final generation
+        print("")
+        print(value)
+    except GraphRecursionError:
+        print(f"=== Recursion Error - {recursion_limit} ===")
+        value = f"=== Recursion Error - {recursion_limit} ==="
+    return value

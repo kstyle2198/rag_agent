@@ -9,7 +9,8 @@ from fastapi import FastAPI, File, UploadFile, Response, WebSocket, WebSocketDis
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
-from utils import app_stream, VectordbManager, AdvancedMiddleware, TimeoutMiddleware, LoggingMiddleware, CustomHeaderMiddleware, ErrorHandlingMiddleware
+from utils import VectordbManager, AdvancedMiddleware, TimeoutMiddleware, LoggingMiddleware, CustomHeaderMiddleware, ErrorHandlingMiddleware
+from utils import web_search_stream, sim_search_stream, rag_stream, sql_stream, total_stream
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -46,14 +47,38 @@ app.add_middleware(
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=origins)
 
 #### API ENDPOINT #####################################################
-@app.post("/agentic_rag")
-def agentic_rag(request: AskRequest):
-	res = app_stream(question=request.question, recursion_limit=request.recursion_limit)
+@app.post("/multi_agent", tags=["AII in One API"])
+def multi_agent(request: AskRequest):
+	res = total_stream(question=request.question, recursion_limit=request.recursion_limit)
+	json_str = json.dumps(res, indent=4, default=str)
+	return Response(content=json_str, media_type='application/json')
+
+@app.post("/sql_agent", tags=["Individual API"])
+def sql_agent(request: AskRequest):
+	res = sql_stream(question=request.question, recursion_limit=request.recursion_limit)
+	json_str = json.dumps(res, indent=4, default=str)
+	return Response(content=json_str, media_type='application/json')
+
+@app.post("/sim_agent", tags=["Individual API"])
+def sim_agent(request: AskRequest):
+	res = sim_search_stream(question=request.question, recursion_limit=request.recursion_limit)
+	json_str = json.dumps(res, indent=4, default=str)
+	return Response(content=json_str, media_type='application/json')
+
+@app.post("/rag_agent", tags=["Individual API"])
+def rag_agent(request: AskRequest):
+	res = rag_stream(question=request.question, recursion_limit=request.recursion_limit)
+	json_str = json.dumps(res, indent=4, default=str)
+	return Response(content=json_str, media_type='application/json')
+
+@app.post("/web_agent", tags=["Individual API"])
+def web_agent(request: AskRequest):
+	res = web_search_stream(question=request.question, recursion_limit=request.recursion_limit)
 	json_str = json.dumps(res, indent=4, default=str)
 	return Response(content=json_str, media_type='application/json')
 
 
-@app.get("/filenames")
+@app.get("/filenames", tags=["Document List"])
 def filenames(request: ReadVectorDB):
 	res = VectordbManager.get_filename(db_path=request.db_path)
 	return res

@@ -24,8 +24,36 @@ def calculate_time_delta(start, end):
     delta = end - start
     return delta.total_seconds()
 
-def agentic_rag1(question:str, recursion_limit:int):
-    url = "http://rag_agent:8000/agentic_rag"
+def multi(question:str, recursion_limit:int):
+    url = "http://rag_agent:8000/multi_agent"
+    json={"question": str(question), "recursion_limit":int(recursion_limit)}
+    response = requests.post(url, json=json)
+    res = response.json()
+    return res
+
+def web(question:str, recursion_limit:int):
+    url = "http://rag_agent:8000/web_agent"
+    json={"question": str(question), "recursion_limit":int(recursion_limit)}
+    response = requests.post(url, json=json)
+    res = response.json()
+    return res
+
+def sim(question:str, recursion_limit:int):
+    url = "http://rag_agent:8000/sim_agent"
+    json={"question": str(question), "recursion_limit":int(recursion_limit)}
+    response = requests.post(url, json=json)
+    res = response.json()
+    return res
+
+def rag(question:str, recursion_limit:int):
+    url = "http://rag_agent:8000/rag_agent"
+    json={"question": str(question), "recursion_limit":int(recursion_limit)}
+    response = requests.post(url, json=json)
+    res = response.json()
+    return res
+
+def sql(question:str, recursion_limit:int):
+    url = "http://rag_agent:8000/sql_agent"
     json={"question": str(question), "recursion_limit":int(recursion_limit)}
     response = requests.post(url, json=json)
     res = response.json()
@@ -70,13 +98,13 @@ if __name__ == "__main__":
 
 
     text_input = st.chat_input("Say something")
-    tab1, tab2, tab3 = st.tabs(["MAIN", "Documents", "Admin"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Type1(All in One)", "Type2", "Documents", "Admin"])
     with tab1: 
         with st.spinner("Processing..."):
             if text_input:
                 start_time = datetime.now()
                 st.session_state.messages.append({"role": "user", "content": text_input})
-                result = agentic_rag1(question= str(text_input), recursion_limit=5)
+                result = multi(question= str(text_input), recursion_limit=5)
                 st.session_state.messages.append({"role": "assistant", "content": result})
                 end_time = datetime.now()
                 st.session_state.time_delta = calculate_time_delta(start_time, end_time)
@@ -91,6 +119,57 @@ if __name__ == "__main__":
             st.warning(f"⏱️ TimeDelta(Sec) : {st.session_state.time_delta}")
 
     with tab2:
+
+        col21, col22, col23, col24 = st.columns(4)
+        with col21: sim_check = st.checkbox("Similarity Search", value=True)
+        with col22: rag_check = st.checkbox("Rag Search", value=True)
+        with col23: web_check = st.checkbox("Web Search", value=True)
+        with col24: sql_check = st.checkbox("Sql Search", value=True)
+
+        text_input2 = st.text_input("Say Something...")
+        with st.spinner("Processing..."):
+            if text_input2:
+                if sim_check: 
+                    with st.expander("Similarity Search", expanded=True):
+                        try:
+                            result = sim(question= str(text_input2), recursion_limit=5)
+                            with st.container(border=True): 
+                                st.markdown(f":green[{result["documents"]}]")
+                        except Exception as e:
+                            st.info(f"Error: {e}")
+
+                if rag_check: 
+                    with st.expander("Rag Search", expanded=True):
+                        try:
+                            result = rag(question= str(text_input2), recursion_limit=5)
+                            with st.container(border=True): 
+                                st.markdown(f"{result["generation"]}")
+                                st.markdown(f":green[{result["documents"]}]")
+                        except Exception as e:
+                            st.info(f"Error: {e}")
+
+                if web_check: 
+                    with st.expander("Web Search", expanded=True):
+                        try:
+                            result = web(question= str(text_input2), recursion_limit=5)
+                            with st.container(border=True): 
+                                st.markdown(f"{result["generation"]}")
+                                st.markdown(f":green[{result["documents"]}]")
+                        except Exception as e:
+                            st.info(f"Error: {e}")
+
+                if sql_check: 
+                    with st.expander("SQL Search", expanded=True):
+                        try:
+                            result = sql(question= str(text_input2), recursion_limit=5)
+                            with st.container(border=True): 
+                                st.markdown(f"{result["generation"]}")
+                                st.markdown(f":green[{result["sql_query"]}]")
+                                st.markdown(f"{result["query_rows"]}")
+                        except Exception as e:
+                            st.info(f"Error: {e}")
+
+    with tab3:
         with st.spinner("Processing..."):
             if st.button("Update Documents List"):
                 file_list= filenames(db_path="./db/chroma_db_02")
@@ -105,8 +184,8 @@ if __name__ == "__main__":
             input_keywords = st.text_input("Document Keywords(Splitted by Comma)")
             splitted_keywords = input_keywords.split(",")
             splitted_keywords = [word.strip().upper() for word in splitted_keywords]
-
-            with st.container(border=True, height=500):
+            with st.expander("Document List"):
+                with st.container(border=True):
                     if input_keywords:
                         st.session_state.doc_list = [sentence for sentence in st.session_state.doc_list if all(keyword in sentence for keyword in splitted_keywords)]
                     else: pass
@@ -117,7 +196,7 @@ if __name__ == "__main__":
 
         except: st.info("Update Documents List")
 
-    with tab3:
+    with tab4:
         col31, col32 = st.columns(2)
         with col31:
             st.markdown("### Parameter Settings")
